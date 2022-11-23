@@ -1,0 +1,127 @@
+import Lean
+#eval Lean.versionString
+
+def boolTape : Array Bool :=
+  #[false, false, false, true, true, false, false]
+
+def extendBoolTape (t : Array Bool) : Array Bool :=
+  t ++ [false]
+
+def checkPosx (t : Array Bool) (x : Nat) : String :=
+  match t[x] with
+  | true => "occupied"
+  | false => "blank"
+
+#eval checkPosx boolTape 1
+
+def flipTape (n : Nat) (t : Array Bool) (newT : Array Bool) : Array Bool :=
+  match n with
+  | 0 => newT
+  | n+1 => flipTape n t (newT ++ [t[n]])
+
+def rewriteHelp (k : Nat) (newT : Array Bool) (s : Bool) (t : Array Bool)  (n : Nat) : Array Bool :=
+  match n, k with
+  | 0, _ => newT
+  | n+1, 0 => rewriteHelp (n+1) (newT ++ [s]) s t n
+  | n+1, k+1 => rewriteHelp k (newT ++ [t[n]]) s t n
+
+
+def rewrite (s : Bool) (t : Array Bool) (n : Nat) : Array Bool :=
+  rewriteHelp n #[] s (flipTape t.size t #[]) t.size
+
+
+--when this left extension is called the h value will have to incremented
+def extendBoolTapeLeft (t : Array Bool) : Array Bool :=
+  flipTape (t.size+1) ((flipTape t.size t #[]) ++ [false]) #[]
+
+#eval extendBoolTapeLeft boolTape
+
+def runTest (n : Nat) (tape : Array Bool) (h : Nat) : Bool :=
+  match n with
+  | 0 => tape[h]
+  | n+1 => runTest n (extendBoolTape tape) (h+1)
+
+--#eval runTest 4 boolTape 0
+
+--#eval rewrite true boolTape 2
+
+inductive Move where
+  | left : Move
+  | right : Move
+
+namespace Move
+
+structure TM where
+  h : Nat
+  t : Array Bool
+  q : Int
+deriving Repr
+
+def makeTM (head : Nat) (tape : Array Bool) (qState : Int) : TM :=
+  {h := head, t := tape, q := qState}
+
+structure TMstate where
+  q : Int
+  s : Bool
+  m : Bool
+deriving Repr
+
+def makeTMstate (qState : Int) (symbol : Bool) (move : Bool) : TMstate :=
+  {q := qState, s := symbol, m := move}
+
+#eval makeTMstate 1 true true
+
+def TMcode (h : Nat) (t : Array Bool) (q : Int) : TMstate :=
+  match t[h], q with
+  | true, 0 => makeTMstate 0 true true
+  | false, 0 => makeTMstate 1 true false
+  | true, 1 => makeTMstate 1 true false
+  | false, 1 => makeTMstate 2 false true
+  | _, _ => makeTMstate (-1) false true
+
+def translateMove (b : Bool) (h : Nat) : Nat :=
+  match b with
+  | true => (h+1)
+  | false => (h-1)
+
+def leftBoundCheck (t : Array Bool) (h : Nat) : Nat :=
+  match h with
+  | 0 => 1
+  | _ => 0
+
+def rightBoundCheck (t : Array Bool) (h : Nat) : Nat :=
+  match (t.size-h) with
+  | 0 => 2
+  | _ => 0
+--this might just be the single ugliest solution i have ever coded
+def checkTapeBorders (t : Array Bool) (h : Nat) : TM :=
+  match ((rightBoundCheck t h)+(leftBoundCheck t h)) with
+  | 1 => makeTM (h+1) (extendBoolTapeLeft t) (-2)
+  | 2 => makeTM h (extendBoolTape t) (-2)
+  | _ => makeTM h t (-2)
+
+def stepMove (t : Array Bool) (h : Nat) (b : Bool) : TM :=
+  makeTM (translateMove b (checkTapeBorders t h).h) (checkTapeBorders t h).t  (-2)
+
+def copyTM (tm : TM) : TM :=
+  {h := tm.h, t := tm.t, q := tm.q}
+
+
+--this temp strat assumes that LEAN doesn't use pointers and instead actually stores a copy
+--of the data at the "variable" location
+def step (tm : TM) (tempTm : TM) : TM :=
+  match tm.q with
+  | -1 => tm
+  | _ => makeTM (stepMove tm.t tm.h (TMcode tm.h tm.t tm.q).m).h (rewrite (TMcode tempTm.h tm.t tempTm.q).s tm.t tempTm.h) (TMcode tempTm.h tempTm.t tempTm.q).q
+
+def run (n : Nat) (tm : TM) : TM :=
+  match n with
+  | 0 => step tm (copyTM tm)
+  | n+1 => run n (step tm (copyTM tm))
+
+def makeTapeSizeN (tape : Array Bool) (n : Nat) : Array Bool :=
+  match n with
+  | 0 => tape ++ [false]
+  | n+1 => makeTapeSizeN (tape ++ [false]) n
+
+#eval run 20 (makeTM 3 boolTape 0)
